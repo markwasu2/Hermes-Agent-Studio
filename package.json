@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "push": "git add -A && git commit -m \"update\" && git push origin main",
+    "sync": "bash scripts/watch-and-sync.sh"
   },
   "dependencies": {
     "next": "15.1.6",
