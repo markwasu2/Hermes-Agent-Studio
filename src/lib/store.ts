@@ -4,21 +4,21 @@ import { persist } from "zustand/middleware";
 import type { Message, Conversation, AppSettings, GatewayStatus } from "./types";
 
 interface AppState {
-  // Settings
   settings: AppSettings;
   updateSettings: (s: Partial<AppSettings>) => void;
 
-  // Connection
   status: GatewayStatus;
   setStatus: (s: GatewayStatus) => void;
 
-  // UI
   activePanel: string;
   setActivePanel: (p: string) => void;
   settingsOpen: boolean;
   setSettingsOpen: (v: boolean) => void;
 
-  // Active conversation
+  // Onboarding
+  onboardingComplete: boolean;
+  setOnboardingComplete: (v: boolean) => void;
+
   activeConversation: string | null;
   setActiveConversation: (id: string | null) => void;
   messages: Message[];
@@ -26,7 +26,6 @@ interface AppState {
   updateMessage: (id: string, patch: Partial<Message>) => void;
   clearMessages: () => void;
 
-  // Conversations list
   conversations: Conversation[];
   upsertConversation: (c: Conversation) => void;
   removeConversation: (id: string) => void;
@@ -34,7 +33,7 @@ interface AppState {
 
 export const useStore = create<AppState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       settings: {
         gatewayUrl: process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8642",
         apiKey: process.env.NEXT_PUBLIC_API_KEY ?? "",
@@ -52,10 +51,12 @@ export const useStore = create<AppState>()(
       settingsOpen: false,
       setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
 
+      onboardingComplete: false,
+      setOnboardingComplete: (v) => set({ onboardingComplete: v }),
+
       activeConversation: null,
-      setActiveConversation: (id) => {
-        set({ activeConversation: id, messages: [] });
-      },
+      setActiveConversation: (id) => set({ activeConversation: id, messages: [] }),
+
       messages: [],
       addMessage: (m) => set((st) => ({ messages: [...st.messages, m] })),
       updateMessage: (id, patch) =>
@@ -84,6 +85,7 @@ export const useStore = create<AppState>()(
         settings: s.settings,
         conversations: s.conversations,
         activeConversation: s.activeConversation,
+        onboardingComplete: s.onboardingComplete,
       }),
     }
   )

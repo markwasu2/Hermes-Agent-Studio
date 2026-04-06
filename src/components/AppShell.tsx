@@ -1,5 +1,5 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
 import { checkHealth } from "@/lib/hermes";
 import Sidebar from "./Sidebar";
@@ -11,19 +11,47 @@ import CronPanel from "./CronPanel";
 import CanvasPanel from "./CanvasPanel";
 import SettingsModal from "./SettingsModal";
 import StatusBar from "./StatusBar";
+import OnboardingWizard from "./OnboardingWizard";
+import ToastContainer from "./Toast";
+import CommandPalette from "./CommandPalette";
 
 export default function AppShell() {
-  const { activePanel, settings, setStatus, settingsOpen } = useStore();
+  const {
+    activePanel, settings, setStatus, settingsOpen,
+    onboardingComplete, setOnboardingComplete,
+  } = useStore();
 
+  const [cmdOpen, setCmdOpen] = useState(false);
+
+  // Fast polling: 5s until connected, then 15s
   useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout>;
+    let fast = true;
+
     async function ping() {
       const s = await checkHealth(settings);
       setStatus(s);
+      if (s.connected) fast = false;
+      timeout = setTimeout(ping, fast ? 5_000 : 15_000);
     }
+
     ping();
-    const interval = setInterval(ping, 15_000);
-    return () => clearInterval(interval);
+    return () => clearTimeout(timeout);
   }, [settings.gatewayUrl, settings.apiKey]);
+
+  // Cmd+K / Ctrl+K opens command palette
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCmdOpen(prev => !prev);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const showOnboarding = !onboardingComplete;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--surface-0)" }}>
@@ -39,7 +67,13 @@ export default function AppShell() {
           {activePanel === "cron"     && <CronPanel />}
         </div>
       </div>
+
+      {showOnboarding && (
+        <OnboardingWizard onComplete={() => setOnboardingComplete(true)} />
+      )}
       {settingsOpen && <SettingsModal />}
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+      <ToastContainer />
     </div>
   );
 }
