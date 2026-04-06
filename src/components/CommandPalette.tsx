@@ -23,7 +23,7 @@ export default function CommandPalette({ open, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { setActivePanel, setSettingsOpen, clearMessages, createFlow } = useStore() as any;
+  const { setActivePanel, setSettingsOpen, clearMessages, } = useStore() as any;
 
   const commands: Command[] = [
     // Navigation
