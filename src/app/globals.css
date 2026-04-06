@@ -1,0 +1,195 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --surface-0: #080a0d;
+  --surface-1: #0d1017;
+  --surface-2: #121620;
+  --surface-3: #181e2a;
+  --surface-4: #1f2636;
+  --amber: #f0a500;
+  --amber-bright: #ffc840;
+  --amber-dim: #7a5200;
+  --jade: #00d97e;
+  --jade-dim: #00804a;
+  --rose: #ff4d6d;
+  --sky: #38bdf8;
+  --border: #1f2a3a;
+  --text-primary: #e8eaf0;
+  --text-secondary: #8896a8;
+  --text-dim: #4a5568;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: 'IBM Plex Sans', sans-serif;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--amber-dim); }
+
+/* Code blocks */
+pre, code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+}
+
+/* Amber glow on focus */
+.amber-focus:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--amber), 0 0 8px rgba(240,165,0,0.2);
+}
+
+/* Scanline overlay for aesthetic */
+.scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Tool call card */
+.tool-card {
+  background: linear-gradient(135deg, var(--surface-3), var(--surface-2));
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--amber-dim);
+}
+
+/* Typing cursor */
+.cursor::after {
+  content: '▊';
+  animation: blink 1.2s step-end infinite;
+  color: var(--amber);
+  margin-left: 1px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Message enter animation */
+@keyframes msgEnter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.msg-enter { animation: msgEnter 0.2s ease-out; }
+
+/* Panel transitions */
+.panel-fade { animation: fadeIn 0.15s ease-out; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Status badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.badge-connected {
+  background: rgba(0,217,126,0.1);
+  color: var(--jade);
+  border: 1px solid rgba(0,217,126,0.2);
+}
+
+.badge-disconnected {
+  background: rgba(255,77,109,0.1);
+  color: var(--rose);
+  border: 1px solid rgba(255,77,109,0.2);
+}
+
+.badge-amber {
+  background: rgba(240,165,0,0.1);
+  color: var(--amber);
+  border: 1px solid rgba(240,165,0,0.2);
+}
+
+/* Nav items */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.1s;
+  font-size: 0.83rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+
+.nav-item:hover {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background: rgba(240,165,0,0.08);
+  color: var(--amber);
+  border-color: rgba(240,165,0,0.15);
+}
+
+.nav-item.active svg {
+  color: var(--amber);
+}
+
+/* Input */
+.hermes-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: 'IBM Plex Sans', sans-serif;
+  transition: border-color 0.15s;
+}
+
+.hermes-input:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px rgba(240,165,0,0.15);
+}
+
+.hermes-input::placeholder {
+  color: var(--text-dim);
+}
+
+/* Textarea resize */
+.chat-textarea {
+  resize: none;
+  overflow: hidden;
+  min-height: 44px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Divider */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border), transparent);
+}
