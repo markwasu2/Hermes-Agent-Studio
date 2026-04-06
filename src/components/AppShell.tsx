@@ -8,13 +8,13 @@ import SessionsPanel from "./SessionsPanel";
 import SkillsPanel from "./SkillsPanel";
 import MemoryPanel from "./MemoryPanel";
 import CronPanel from "./CronPanel";
+import CanvasPanel from "./CanvasPanel";
 import SettingsModal from "./SettingsModal";
 import StatusBar from "./StatusBar";
 
 export default function AppShell() {
   const { activePanel, settings, setStatus, settingsOpen } = useStore();
 
-  // Poll health every 15 seconds
   useEffect(() => {
     async function ping() {
       const s = await checkHealth(settings);
@@ -28,19 +28,17 @@ export default function AppShell() {
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--surface-0)" }}>
       <Sidebar />
-
-      {/* Main content */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <StatusBar />
+        {activePanel !== "canvas" && <StatusBar />}
         <div className="flex-1 min-h-0 overflow-hidden panel-fade">
-          {activePanel === "chat" && <ChatPanel />}
+          {activePanel === "chat"     && <ChatPanel />}
+          {activePanel === "canvas"   && <CanvasPanel />}
           {activePanel === "sessions" && <SessionsPanel />}
-          {activePanel === "skills" && <SkillsPanel />}
-          {activePanel === "memory" && <MemoryPanel />}
-          {activePanel === "cron" && <CronPanel />}
+          {activePanel === "skills"   && <SkillsPanel />}
+          {activePanel === "memory"   && <MemoryPanel />}
+          {activePanel === "cron"     && <CronPanel />}
         </div>
       </div>
-
       {settingsOpen && <SettingsModal />}
     </div>
   );

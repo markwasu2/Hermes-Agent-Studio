@@ -1,10 +1,11 @@
 "use client";
-import { MessageSquare, BookOpen, Brain, Clock, Settings, ChevronRight, Zap } from "lucide-react";
+import { MessageSquare, BookOpen, Brain, Clock, Settings, ChevronRight, Zap, GitBranch } from "lucide-react";
 import { useStore } from "@/lib/store";
 import clsx from "clsx";
 
 const NAV = [
   { id: "chat",     icon: MessageSquare, label: "Chat" },
+  { id: "canvas",   icon: GitBranch,     label: "Canvas" },
   { id: "sessions", icon: BookOpen,       label: "Sessions" },
   { id: "memory",   icon: Brain,          label: "Memory" },
   { id: "skills",   icon: Zap,            label: "Skills" },
@@ -50,12 +51,20 @@ export default function Sidebar() {
           >
             <Icon size={15} />
             <span>{label}</span>
-            {activePanel === id && <ChevronRight size={12} className="ml-auto opacity-60" />}
+            {id === "canvas" && (
+              <span
+                className="ml-auto text-xs px-1.5 py-0.5 rounded"
+                style={{ background: "rgba(240,165,0,0.1)", color: "var(--amber)", fontFamily: "'JetBrains Mono', monospace", fontSize: "0.55rem", border: "1px solid rgba(240,165,0,0.15)" }}
+              >
+                NEW
+              </span>
+            )}
+            {activePanel === id && id !== "canvas" && <ChevronRight size={12} className="ml-auto opacity-60" />}
           </button>
         ))}
       </nav>
 
-      {/* Recent conversations (only shown when chat is active) */}
+      {/* Recent conversations */}
       {activePanel === "chat" && conversations.length > 0 && (
         <div className="flex-1 overflow-y-auto px-2 pt-1 pb-2 min-h-0">
           <div className="px-2 mb-2" style={{ color: "var(--text-dim)", fontSize: "0.65rem", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.08em", textTransform: "uppercase" }}>
@@ -65,12 +74,7 @@ export default function Sidebar() {
             <button
               key={c.id}
               onClick={() => setActiveConversation(c.id)}
-              className={clsx(
-                "w-full text-left px-2 py-1.5 rounded text-xs truncate transition-all",
-                activeConversation === c.id
-                  ? "text-amber-DEFAULT"
-                  : "hover:text-primary"
-              )}
+              className="w-full text-left px-2 py-1.5 rounded text-xs truncate transition-all"
               style={{
                 color: activeConversation === c.id ? "var(--amber)" : "var(--text-secondary)",
                 background: activeConversation === c.id ? "rgba(240,165,0,0.06)" : "transparent",
@@ -86,10 +90,7 @@ export default function Sidebar() {
 
       {/* Settings */}
       <div className="px-2 pb-3 border-t pt-2" style={{ borderColor: "var(--border)" }}>
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="nav-item w-full text-left"
-        >
+        <button onClick={() => setSettingsOpen(true)} className="nav-item w-full text-left">
           <Settings size={15} />
           <span>Settings</span>
         </button>
