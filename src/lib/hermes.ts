@@ -1,158 +1,300 @@
 import type { AppSettings, GatewayStatus } from "./types";
 
-function headers(apiKey: string) {
-  return {
-    "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-  };
-}
-
+// ── Health check ────────────────────────────────────────────────────────────
 export async function checkHealth(settings: AppSettings): Promise<GatewayStatus> {
-  const start = Date.now();
   try {
+    const start = Date.now();
     const res = await fetch(`/api/proxy?path=/health`, {
-      headers: { "x-gateway-url": settings.gatewayUrl, "x-api-key": settings.apiKey },
+      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      signal: AbortSignal.timeout(4000),
     });
-    if (!res.ok) return { connected: false, error: `HTTP ${res.status}` };
     const latency = Date.now() - start;
-    return { connected: true, latency };
+    if (res.ok) return { connected: true, latency };
+    return { connected: false, error: `HTTP ${res.status}` };
   } catch (e: unknown) {
-    return { connected: false, error: e instanceof Error ? e.message : String(e) };
+    return { connected: false, error: (e as Error).message };
   }
 }
 
+// ── Fetch available models ──────────────────────────────────────────────────
 export async function fetchModels(settings: AppSettings): Promise<string[]> {
   try {
-    const res = await fetch(`/api/proxy?path=/v1/models`, {
-      headers: { "x-gateway-url": settings.gatewayUrl, "x-api-key": settings.apiKey },
+    const res = await fetch(`/api/proxy?path=/models`, {
+      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      signal: AbortSignal.timeout(5000),
     });
-    if (!res.ok) return ["hermes-agent"];
+    if (!res.ok) return [];
     const data = await res.json();
-    return (data.data ?? []).map((m: { id: string }) => m.id);
+    if (Array.isArray(data)) return data.map((m: { id?: string; name?: string }) => m.id ?? m.name ?? "").filter(Boolean);
+    if (data.models && Array.isArray(data.models)) return data.models;
+    if (data.data && Array.isArray(data.data)) return data.data.map((m: { id?: string }) => m.id ?? "").filter(Boolean);
+    return [];
   } catch {
-    return ["hermes-agent"];
+    return [];
   }
 }
 
-export interface StreamCallbacks {
-  onToken: (token: string) => void;
-  onToolCall: (name: string, args: string) => void;
-  onDone: (fullText: string) => void;
-  onError: (err: string) => void;
-}
-
-export async function streamChat(
-  settings: AppSettings,
-  messages: { role: string; content: string }[],
-  conversation: string | null,
-  callbacks: StreamCallbacks
-) {
-  const body: Record<string, unknown> = {
-    model: settings.model || "hermes-agent",
-    messages: [
-      ...(settings.systemPrompt ? [{ role: "system", content: settings.systemPrompt }] : []),
-      ...messages,
-    ],
-    stream: true,
-  };
-
-  if (conversation) {
-    body.conversation = conversation;
-  }
-
-  let accumulated = "";
-
-  try {
-    const res = await fetch(`/api/proxy?path=/v1/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-gateway-url": settings.gatewayUrl,
-        "x-api-key": settings.apiKey,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      callbacks.onError(`HTTP ${res.status}: ${text}`);
-      return;
-    }
-
-    const reader = res.body?.getReader();
-    if (!reader) {
-      callbacks.onError("No response body");
-      return;
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") {
-          callbacks.onDone(accumulated);
-          return;
-        }
-        try {
-          const chunk = JSON.parse(data);
-          const delta = chunk.choices?.[0]?.delta;
-          if (delta?.content) {
-            accumulated += delta.content;
-            callbacks.onToken(delta.content);
-          }
-          // detect tool progress indicator lines
-          if (delta?.content && delta.content.match(/^`[🔧💻🔍🌐📁✍️⚙️].+`/)) {
-            const match = delta.content.match(/`([🔧💻🔍🌐📁✍️⚙️][^`]+)`/);
-            if (match) callbacks.onToolCall(match[1], "");
-          }
-        } catch {
-          // non-JSON line, skip
-        }
-      }
-    }
-    callbacks.onDone(accumulated);
-  } catch (e: unknown) {
-    callbacks.onError(e instanceof Error ? e.message : String(e));
-  }
-}
-
+// ── Send chat message (streaming + non-streaming) ───────────────────────────
 export async function sendMessage(
   settings: AppSettings,
-  messages: { role: string; content: string }[],
-  conversation: string | null
-): Promise<string> {
+  messages: Array<{ role: string; content: string }>,
+  sessionId: string | null,
+  onChunk: (text: string) => void,
+  onToolCall: (tool: string) => void,
+  signal?: AbortSignal
+) {
   const body: Record<string, unknown> = {
-    model: settings.model || "hermes-agent",
-    messages: [
-      ...(settings.systemPrompt ? [{ role: "system", content: settings.systemPrompt }] : []),
-      ...messages,
-    ],
-    stream: false,
+    messages,
+    model: settings.model,
+    stream: settings.streamingEnabled,
   };
+  if (settings.systemPrompt) body.system = settings.systemPrompt;
+  if (sessionId) body.session_id = sessionId;
 
-  if (conversation) body.conversation = conversation;
-
-  const res = await fetch(`/api/proxy?path=/v1/chat/completions`, {
+  const res = await fetch(`/api/proxy?path=/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-gateway-url": settings.gatewayUrl,
-      "x-api-key": settings.apiKey,
+      Authorization: `Bearer ${settings.apiKey}`,
     },
     body: JSON.stringify(body),
+    signal,
   });
 
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
+  if (!res.ok) {
+    const err = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(err);
+  }
+
+  if (!settings.streamingEnabled) {
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? data.response ?? data.content ?? "";
+    onChunk(content);
+    return;
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("No response body");
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") return;
+      try {
+        const json = JSON.parse(data);
+        const delta = json.choices?.[0]?.delta?.content ?? json.content ?? "";
+        if (delta) onChunk(delta);
+        if (json.tool_calls || json.tool_use) {
+          const toolName = json.tool_calls?.[0]?.function?.name ?? json.tool_use?.[0]?.name ?? "tool";
+          onToolCall(toolName);
+        }
+      } catch { /* skip malformed SSE lines */ }
+    }
+  }
+}
+
+// ── Memory ───────────────────────────────────────────────────────────────────
+export async function queryMemory(settings: AppSettings, query = ""): Promise<string[]> {
+  try {
+    const prompt = query
+      ? `Search your memory for anything related to: "${query}". Return results as a JSON array of strings.`
+      : "List your 20 most recent memories. Return as a JSON array of strings only, no other text.";
+
+    const res = await fetch(`/api/proxy?path=/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: prompt }],
+        model: settings.model,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? data.response ?? "";
+    const match = content.match(/\[[\s\S]*?\]/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { /* fall through */ }
+    }
+    // Fallback: split by newlines
+    return content.split("\n").map((l: string) => l.replace(/^[-•*\d.]+\s*/, "").trim()).filter((l: string) => l.length > 5).slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+export async function addMemory(settings: AppSettings, memory: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/proxy?path=/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: `Please save this to your memory: ${memory}` }],
+        model: settings.model,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ── Skills ────────────────────────────────────────────────────────────────────
+export interface Skill {
+  name: string;
+  description: string;
+  enabled?: boolean;
+  version?: string;
+}
+
+export async function querySkills(settings: AppSettings): Promise<Skill[]> {
+  // Default built-in skills — shown while offline or as fallback
+  const defaults: Skill[] = [
+    { name: "web_search", description: "Search the internet for current information", enabled: true },
+    { name: "terminal", description: "Run shell commands on your computer", enabled: true },
+    { name: "file_ops", description: "Read and write files", enabled: true },
+    { name: "browser", description: "Browse and interact with websites", enabled: true },
+    { name: "memory", description: "Remember information across sessions", enabled: true },
+    { name: "github", description: "Work with GitHub repos, issues, and PRs", enabled: true },
+    { name: "code_runner", description: "Execute Python and JavaScript code", enabled: true },
+    { name: "telegram", description: "Send messages via Telegram", enabled: false },
+    { name: "discord", description: "Post to Discord channels", enabled: false },
+    { name: "email", description: "Read and send emails", enabled: false },
+    { name: "calendar", description: "Access calendar events", enabled: false },
+    { name: "slack", description: "Read and post Slack messages", enabled: false },
+  ];
+
+  try {
+    const res = await fetch(`/api/proxy?path=/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "List all your available tools as a JSON array with objects {name: string, description: string, enabled: boolean}. Return ONLY the JSON array." }],
+        model: settings.model,
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return defaults;
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content ?? data.response ?? "";
+    const match = content.match(/\[[\s\S]*?\]/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch { /* fall through */ }
+    }
+    return defaults;
+  } catch {
+    return defaults;
+  }
+}
+
+// ── Cron ──────────────────────────────────────────────────────────────────────
+export interface CronJob {
+  id: string;
+  name: string;
+  schedule: string;
+  task: string;
+  active: boolean;
+  lastRun?: string;
+  nextRun?: string;
+}
+
+export async function queryCronJobs(settings: AppSettings): Promise<CronJob[]> {
+  try {
+    // Try dedicated endpoint first
+    const res = await fetch(`/api/proxy?path=/cron/jobs`, {
+      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : (data.jobs ?? []);
+    }
+  } catch { /* fall through to agent query */ }
+
+  try {
+    const chatRes = await fetch(`/api/proxy?path=/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "List all my scheduled cron jobs as a JSON array with objects {id, name, schedule, task, active, lastRun, nextRun}. Return ONLY the JSON array." }],
+        model: settings.model,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!chatRes.ok) return [];
+    const chatData = await chatRes.json();
+    const content = chatData.choices?.[0]?.message?.content ?? chatData.response ?? "";
+    const match = content.match(/\[[\s\S]*?\]/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { /* fall through */ }
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createCronJob(settings: AppSettings, schedule: string, task: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/proxy?path=/cron/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({ schedule, task, name: task.slice(0, 40) }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) return true;
+  } catch { /* fall through */ }
+
+  try {
+    const chatRes = await fetch(`/api/proxy?path=/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: `Create a scheduled job: schedule="${schedule}", task="${task}". Confirm it has been saved.` }],
+        model: settings.model,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    return chatRes.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteCronJob(settings: AppSettings, id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/proxy?path=/cron/jobs/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function runCronJobNow(settings: AppSettings, id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/proxy?path=/cron/jobs/${id}/run`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
