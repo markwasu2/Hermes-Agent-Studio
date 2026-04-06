@@ -1,1 +1,1 @@
-console.log("preload")
+const { contextBridge } = require("electron"); contextBridge.exposeInMainWorld("hermesStudio", { platform: process.platform });
