@@ -1,11 +1,21 @@
 import type { AppSettings, GatewayStatus } from "./types";
 
+// ── Headers helper — passes gateway URL and API key to proxy ───────────────
+function h(settings: AppSettings, extra: Record<string, string> = {}) {
+  return {
+    "Authorization": `Bearer ${settings.apiKey}`,
+    "x-gateway-url": settings.gatewayUrl,
+    ...extra,
+  };
+}
+
+
 // ── Health check ────────────────────────────────────────────────────────────
 export async function checkHealth(settings: AppSettings): Promise<GatewayStatus> {
   try {
     const start = Date.now();
     const res = await fetch(`/api/proxy?path=/health`, {
-      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings),
       signal: AbortSignal.timeout(4000),
     });
     const latency = Date.now() - start;
@@ -20,7 +30,7 @@ export async function checkHealth(settings: AppSettings): Promise<GatewayStatus>
 export async function fetchModels(settings: AppSettings): Promise<string[]> {
   try {
     const res = await fetch(`/api/proxy?path=/models`, {
-      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings),
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
@@ -53,10 +63,7 @@ export async function sendMessage(
 
   const res = await fetch(`/api/proxy?path=/chat`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
+    headers: h(settings, { "Content-Type": "application/json" }),
     body: JSON.stringify(body),
     signal,
   });
@@ -110,7 +117,7 @@ export async function queryMemory(settings: AppSettings, query = ""): Promise<st
 
     const res = await fetch(`/api/proxy?path=/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings, { "Content-Type": "application/json" }),
       body: JSON.stringify({
         messages: [{ role: "user", content: prompt }],
         model: settings.model,
@@ -135,7 +142,7 @@ export async function addMemory(settings: AppSettings, memory: string): Promise<
   try {
     const res = await fetch(`/api/proxy?path=/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings, { "Content-Type": "application/json" }),
       body: JSON.stringify({
         messages: [{ role: "user", content: `Please save this to your memory: ${memory}` }],
         model: settings.model,
@@ -176,7 +183,7 @@ export async function querySkills(settings: AppSettings): Promise<Skill[]> {
   try {
     const res = await fetch(`/api/proxy?path=/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings, { "Content-Type": "application/json" }),
       body: JSON.stringify({
         messages: [{ role: "user", content: "List all your available tools as a JSON array with objects {name: string, description: string, enabled: boolean}. Return ONLY the JSON array." }],
         model: settings.model,
@@ -214,7 +221,7 @@ export async function queryCronJobs(settings: AppSettings): Promise<CronJob[]> {
   try {
     // Try dedicated endpoint first
     const res = await fetch(`/api/proxy?path=/cron/jobs`, {
-      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings),
       signal: AbortSignal.timeout(5000),
     });
     if (res.ok) {
@@ -226,7 +233,7 @@ export async function queryCronJobs(settings: AppSettings): Promise<CronJob[]> {
   try {
     const chatRes = await fetch(`/api/proxy?path=/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings, { "Content-Type": "application/json" }),
       body: JSON.stringify({
         messages: [{ role: "user", content: "List all my scheduled cron jobs as a JSON array with objects {id, name, schedule, task, active, lastRun, nextRun}. Return ONLY the JSON array." }],
         model: settings.model,
@@ -250,7 +257,7 @@ export async function createCronJob(settings: AppSettings, schedule: string, tas
   try {
     const res = await fetch(`/api/proxy?path=/cron/jobs`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings, { "Content-Type": "application/json" }),
       body: JSON.stringify({ schedule, task, name: task.slice(0, 40) }),
       signal: AbortSignal.timeout(5000),
     });
@@ -260,7 +267,7 @@ export async function createCronJob(settings: AppSettings, schedule: string, tas
   try {
     const chatRes = await fetch(`/api/proxy?path=/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings, { "Content-Type": "application/json" }),
       body: JSON.stringify({
         messages: [{ role: "user", content: `Create a scheduled job: schedule="${schedule}", task="${task}". Confirm it has been saved.` }],
         model: settings.model,
@@ -277,7 +284,7 @@ export async function deleteCronJob(settings: AppSettings, id: string): Promise<
   try {
     const res = await fetch(`/api/proxy?path=/cron/jobs/${id}`, {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings),
       signal: AbortSignal.timeout(5000),
     });
     return res.ok;
@@ -290,7 +297,7 @@ export async function runCronJobNow(settings: AppSettings, id: string): Promise<
   try {
     const res = await fetch(`/api/proxy?path=/cron/jobs/${id}/run`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${settings.apiKey}` },
+      headers: h(settings),
       signal: AbortSignal.timeout(5000),
     });
     return res.ok;

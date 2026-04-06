@@ -23,39 +23,38 @@ export default function AppShell() {
 
   const [cmdOpen, setCmdOpen] = useState(false);
 
-  // Fast polling: 5s until connected, then 15s
+  // Poll health — 5s until connected, then 20s
   useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout>;
-    let fast = true;
+    let timer: ReturnType<typeof setTimeout>;
+    let connected = false;
 
     async function ping() {
       const s = await checkHealth(settings);
       setStatus(s);
-      if (s.connected) fast = false;
-      timeout = setTimeout(ping, fast ? 5_000 : 15_000);
+      if (s.connected) connected = true;
+      timer = setTimeout(ping, connected ? 20_000 : 5_000);
     }
 
     ping();
-    return () => clearTimeout(timeout);
+    return () => clearTimeout(timer);
   }, [settings.gatewayUrl, settings.apiKey]);
 
-  // Cmd+K / Ctrl+K opens command palette
+  // Cmd+K
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
-        setCmdOpen(prev => !prev);
+        setCmdOpen(p => !p);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const showOnboarding = !onboardingComplete;
-
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: "var(--surface-0)" }}>
       <Sidebar />
+
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         {activePanel !== "canvas" && <StatusBar />}
         <div className="flex-1 min-h-0 overflow-hidden panel-fade">
@@ -68,9 +67,11 @@ export default function AppShell() {
         </div>
       </div>
 
-      {showOnboarding && (
+      {/* Onboarding — shown on first ever open */}
+      {!onboardingComplete && (
         <OnboardingWizard onComplete={() => setOnboardingComplete(true)} />
       )}
+
       {settingsOpen && <SettingsModal />}
       <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
       <ToastContainer />
