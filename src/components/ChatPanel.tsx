@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import { streamChat, sendMessage } from "@/lib/hermes";
 import type { Message } from "@/lib/types";
 import clsx from "clsx";
+import { WorkflowBuilder, isWorkflowRequest } from "./WorkflowBuilder";
 
 function uid() {
   return Math.random().toString(36).slice(2, 12);
@@ -140,12 +141,13 @@ function WelcomeState() {
 export default function ChatPanel() {
   const {
     messages, addMessage, updateMessage, clearMessages,
-    settings, activeConversation, status
+    settings, activeConversation, status, setActivePanel
   } = useStore();
 
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [workflowRequest, setWorkflowRequest] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -182,6 +184,11 @@ export default function ChatPanel() {
       timestamp: Date.now(),
     };
     addMessage(userMsg);
+
+    // Detect workflow request
+    if (isWorkflowRequest(text) && settings.streamingEnabled) {
+      setWorkflowRequest(text);
+    }
 
     const assistantId = uid();
     addMessage({
@@ -245,6 +252,16 @@ export default function ChatPanel() {
           <WelcomeState />
         ) : (
           messages.map((msg) => <ChatMessage key={msg.id} message={msg} />)
+        )}
+        {workflowRequest && (
+          <WorkflowBuilder
+            description={workflowRequest}
+            onDismiss={() => setWorkflowRequest(null)}
+            onBuilt={(name) => {
+              setWorkflowRequest(null);
+              setActivePanel("canvas");
+            }}
+          />
         )}
         <div ref={bottomRef} />
       </div>

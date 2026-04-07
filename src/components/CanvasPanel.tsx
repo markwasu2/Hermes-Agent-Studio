@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Plus, Trash2, Play, Download, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Play, Download, AlertTriangle, Loader2, CheckCircle, XCircle, Terminal } from "lucide-react";
 import { useCanvasStore } from "./canvas/canvasStore";
 import NodeLibrary from "./canvas/NodeLibrary";
 import CanvasEngine from "./canvas/CanvasEngine";
@@ -8,17 +8,22 @@ import type { NodeTypeDef } from "./canvas/nodeTypes";
 import { formatDistanceToNow } from "date-fns";
 import { flowToHermesConfig, validateFlow } from "./canvas/canvasDeploy";
 import { notify } from "./Toast";
+import { useStore } from "@/lib/store";
+import { runFlow } from "@/lib/runFlow";
 
 export default function CanvasPanel() {
   const {
     flows, activeFlowId, setActiveFlow, createFlow, deleteFlow, renameFlow, getActiveFlow,
   } = useCanvasStore();
+  const { settings, status } = useStore();
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deployErrors, setDeployErrors] = useState<string[]>([]);
   const [showDeploy, setShowDeploy] = useState(false);
   const [yamlOutput, setYamlOutput] = useState("");
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<{ ok: boolean; output?: string; error?: string } | null>(null);
 
   const activeFlow = getActiveFlow();
 
@@ -35,14 +40,11 @@ export default function CanvasPanel() {
   function handleDeploy() {
     if (!activeFlow) return;
     const errors = validateFlow(activeFlow);
-    if (errors.length > 0) {
-      setDeployErrors(errors);
-      setShowDeploy(true);
-      return;
-    }
+    if (errors.length > 0) { setDeployErrors(errors); setShowDeploy(true); return; }
     const yaml = flowToHermesConfig(activeFlow);
     setYamlOutput(yaml);
     setDeployErrors([]);
+    setRunResult(null);
     setShowDeploy(true);
   }
 
@@ -59,8 +61,31 @@ export default function CanvasPanel() {
   }
 
   function copyYaml() {
-    navigator.clipboard.writeText(yamlOutput);
+    try { navigator.clipboard.writeText(yamlOutput); } catch {
+      const ta = document.createElement("textarea");
+      ta.value = yamlOutput; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); document.body.removeChild(ta);
+    }
     notify.success("Copied to clipboard");
+  }
+
+  async function handleRunNow() {
+    if (!activeFlow || !yamlOutput) return;
+    if (!status.connected) { notify.error("Connect Hermes gateway first — run: hermes gateway"); return; }
+    setRunning(true);
+    setRunResult(null);
+    notify.info(`Running "${activeFlow.name}"…`);
+    try {
+      const result = await runFlow(settings, yamlOutput, activeFlow.name);
+      setRunResult(result);
+      if (result.ok) {
+        notify.success(`"${activeFlow.name}" started! Check Telegram for output.`);
+      } else {
+        notify.error(result.error ?? "Failed to run flow");
+      }
+    } finally {
+      setRunning(false);
+    }
   }
 
   if (flows.length === 0) {
@@ -72,7 +97,7 @@ export default function CanvasPanel() {
             Hermes Canvas
           </h2>
           <p className="text-sm text-center" style={{ color: "var(--text-secondary)" }}>
-            Visually build agent flows — export as real Hermes config
+            Build agent flows visually — then run them with one click
           </p>
         </div>
         <button onClick={() => createFlow("My First Flow")}
@@ -80,16 +105,13 @@ export default function CanvasPanel() {
           style={{ background: "var(--amber)", color: "var(--surface-0)", border: "none", cursor: "pointer" }}>
           <Plus size={15} /> Create your first flow
         </button>
-        <div style={{ color: "var(--text-dim)", fontFamily: "'JetBrains Mono',monospace", fontSize: "0.7rem", textAlign: "center", lineHeight: 1.8 }}>
-          Build → Configure → Export YAML → Run with Hermes
-        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full min-h-0" style={{ background: "var(--surface-0)" }}>
-      {/* Tabs + toolbar */}
+      {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 py-2 flex-shrink-0 border-b"
         style={{ background: "var(--surface-1)", borderColor: "var(--border)" }}>
         <div className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto">
@@ -116,10 +138,9 @@ export default function CanvasPanel() {
               )}
               {flows.length > 1 && (
                 <button onClick={() => deleteFlow(flow.id)}
-                  style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", padding: "2px 3px", borderRadius: 3, opacity: 0 }}
-                  className="hover:opacity-100"
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; (e.currentTarget as HTMLElement).style.color = "var(--rose)"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "0"; (e.currentTarget as HTMLElement).style.color = "var(--text-dim)"; }}>
+                  style={{ background: "none", border: "none", color: "transparent", cursor: "pointer", padding: "2px 3px" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "var(--rose)"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "transparent"; }}>
                   <Trash2 size={10} />
                 </button>
               )}
@@ -132,8 +153,6 @@ export default function CanvasPanel() {
             <Plus size={11} /> New
           </button>
         </div>
-
-        {/* Deploy button */}
         <button onClick={handleDeploy}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold flex-shrink-0"
           style={{ background: "var(--jade)", color: "var(--surface-0)", border: "none", cursor: "pointer" }}>
@@ -141,7 +160,7 @@ export default function CanvasPanel() {
         </button>
       </div>
 
-      {/* Main canvas area */}
+      {/* Canvas */}
       {activeFlow ? (
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <NodeLibrary onDragStart={handleDragStart} />
@@ -170,21 +189,29 @@ export default function CanvasPanel() {
       {showDeploy && (
         <div
           style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
-          onClick={e => { if (e.target === e.currentTarget) setShowDeploy(false); }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowDeploy(false); setRunResult(null); } }}
         >
-          <div style={{ width: "100%", maxWidth: 560, background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.5)", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+          <div style={{ width: "100%", maxWidth: 580, background: "var(--surface-1)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.5)", maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+
+            {/* Header */}
             <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
                 <h2 style={{ color: "var(--text-primary)", fontFamily: "'Space Grotesk',sans-serif", fontWeight: 700, fontSize: "0.95rem" }}>
                   {deployErrors.length > 0 ? "⚠ Flow needs attention" : "✓ Deploy Config"}
                 </h2>
                 <p style={{ color: "var(--text-secondary)", fontSize: "0.78rem", marginTop: 2 }}>
-                  {deployErrors.length > 0 ? "Fix these issues before deploying" : "Download and run with: hermes run --config <file>"}
+                  {deployErrors.length > 0
+                    ? "Fix these issues before deploying"
+                    : status.connected
+                      ? "Click Run Now to execute immediately — or download to run manually"
+                      : "Download and run with: hermes run --config <file>"}
                 </p>
               </div>
-              <button onClick={() => setShowDeploy(false)} style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "1.2rem" }}>×</button>
+              <button onClick={() => { setShowDeploy(false); setRunResult(null); }}
+                style={{ background: "none", border: "none", color: "var(--text-dim)", cursor: "pointer", fontSize: "1.2rem", padding: 4 }}>×</button>
             </div>
 
+            {/* Body */}
             <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
               {deployErrors.length > 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -197,36 +224,89 @@ export default function CanvasPanel() {
                 </div>
               ) : (
                 <>
-                  <pre style={{ background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 8, padding: "14px 16px", fontSize: "0.72rem", fontFamily: "'JetBrains Mono',monospace", color: "var(--jade)", overflow: "auto", maxHeight: 340, lineHeight: 1.7, margin: 0 }}>
+                  {/* Run result */}
+                  {runResult && (
+                    <div style={{
+                      marginBottom: 14, padding: "12px 14px", borderRadius: 8,
+                      background: runResult.ok ? "rgba(0,217,126,0.07)" : "rgba(255,77,109,0.07)",
+                      border: `1px solid ${runResult.ok ? "rgba(0,217,126,0.25)" : "rgba(255,77,109,0.25)"}`,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: runResult.output ? 8 : 0 }}>
+                        {runResult.ok
+                          ? <CheckCircle size={15} style={{ color: "var(--jade)", flexShrink: 0 }} />
+                          : <XCircle size={15} style={{ color: "var(--rose)", flexShrink: 0 }} />}
+                        <span style={{ color: runResult.ok ? "var(--jade)" : "var(--rose)", fontSize: "0.85rem", fontWeight: 600 }}>
+                          {runResult.ok ? "Workflow started!" : "Failed to run"}
+                        </span>
+                      </div>
+                      {runResult.output && (
+                        <pre style={{ color: "var(--text-secondary)", fontSize: "0.72rem", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "pre-wrap", lineHeight: 1.6, margin: 0 }}>
+                          {runResult.output.slice(0, 400)}{runResult.output.length > 400 ? "…" : ""}
+                        </pre>
+                      )}
+                      {runResult.error && (
+                        <p style={{ color: "var(--rose)", fontSize: "0.75rem", margin: 0 }}>{runResult.error}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* YAML */}
+                  <pre style={{
+                    background: "var(--surface-0)", border: "1px solid var(--border)", borderRadius: 8,
+                    padding: "14px 16px", fontSize: "0.72rem", fontFamily: "'JetBrains Mono',monospace",
+                    color: "var(--jade)", overflow: "auto", maxHeight: 300, lineHeight: 1.7, margin: 0,
+                  }}>
                     {yamlOutput}
                   </pre>
-                  <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
-                    <div style={{ color: "var(--text-secondary)", fontSize: "0.78rem", fontWeight: 600, marginBottom: 6 }}>How to use this config:</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                      {[
-                        { n: "1", text: "Download the YAML file", cmd: null },
-                        { n: "2", text: "Save it anywhere, e.g.", cmd: "~/my-flow.yaml" },
-                        { n: "3", text: "Run it with Hermes:", cmd: "hermes run --config ~/my-flow.yaml" },
-                      ].map(step => (
-                        <div key={step.n} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: "var(--amber)", color: "var(--surface-0)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6rem", fontWeight: 700, flexShrink: 0 }}>{step.n}</span>
-                          <span style={{ color: "var(--text-secondary)", fontSize: "0.78rem" }}>{step.text}</span>
-                          {step.cmd && <code style={{ color: "var(--amber)", fontSize: "0.72rem", fontFamily: "'JetBrains Mono',monospace", background: "var(--surface-0)", padding: "2px 8px", borderRadius: 4 }}>{step.cmd}</code>}
-                        </div>
-                      ))}
+
+                  {/* How to run instructions */}
+                  {!status.connected && (
+                    <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+                      <div style={{ color: "var(--text-secondary)", fontSize: "0.78rem", fontWeight: 600, marginBottom: 8 }}>
+                        Hermes isn't connected — to run manually:
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {[
+                          { n: "1", text: "Download the YAML file below" },
+                          { n: "2", text: "Run:", code: "hermes run --config ~/Downloads/" + (activeFlow?.name.toLowerCase().replace(/\s+/g, "-") ?? "flow") + ".yaml" },
+                        ].map(s => (
+                          <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ width: 18, height: 18, borderRadius: "50%", background: "var(--amber)", color: "var(--surface-0)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.6rem", fontWeight: 700, flexShrink: 0 }}>{s.n}</span>
+                            <span style={{ color: "var(--text-secondary)", fontSize: "0.78rem" }}>{s.text}</span>
+                            {s.code && <code style={{ color: "var(--amber)", fontSize: "0.68rem", fontFamily: "'JetBrains Mono',monospace", background: "var(--surface-0)", padding: "2px 8px", borderRadius: 4 }}>{s.code}</code>}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </>
               )}
             </div>
 
+            {/* Footer buttons */}
             {!deployErrors.length && (
               <div style={{ padding: "12px 20px", borderTop: "1px solid var(--border)", display: "flex", gap: 8, background: "var(--surface-0)" }}>
-                <button onClick={copyYaml} style={{ flex: 1, padding: "9px", borderRadius: 7, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-secondary)", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
+                <button onClick={copyYaml}
+                  style={{ flex: 1, padding: "9px", borderRadius: 7, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-secondary)", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
                   Copy YAML
                 </button>
-                <button onClick={downloadYaml} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", borderRadius: 7, background: "var(--amber)", border: "none", color: "var(--surface-0)", cursor: "pointer", fontSize: "0.82rem", fontWeight: 700 }}>
-                  <Download size={13} /> Download Config
+                <button onClick={downloadYaml}
+                  style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px", borderRadius: 7, background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-secondary)", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
+                  <Download size={13} /> Download
+                </button>
+                <button onClick={handleRunNow} disabled={running}
+                  style={{
+                    flex: 2, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    padding: "9px", borderRadius: 7, border: "none", cursor: running ? "wait" : "pointer",
+                    fontSize: "0.9rem", fontWeight: 700,
+                    background: status.connected ? "var(--jade)" : "var(--surface-3)",
+                    color: status.connected ? "var(--surface-0)" : "var(--text-dim)",
+                  }}>
+                  {running
+                    ? <><Loader2 size={14} className="animate-spin" /> Running…</>
+                    : status.connected
+                      ? <><Play size={14} /> Run Now</>
+                      : <><Terminal size={14} /> Connect Gateway to Run</>}
                 </button>
               </div>
             )}
